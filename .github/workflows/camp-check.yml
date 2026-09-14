@@ -2,10 +2,9 @@ name: Camp Availability Check
 
 on:
   schedule:
-    # 10分ごと
-    - cron: "*/5 * * * *"
+    # 毎時 3, 8, 13, 18, 23...分
+    - cron: "3/5 * * * *"
 
-  # 手動実行できるようにする
   workflow_dispatch:
 
 jobs:

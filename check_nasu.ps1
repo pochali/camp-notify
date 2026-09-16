@@ -16,6 +16,9 @@
 #
 # 空きがあった場合:
 #   Discord Webhookへ通知
+#
+# Discord:
+#   1メッセージ1900文字以内に分割して送信
 # ============================================================
 
 
@@ -181,6 +184,9 @@ function Convert-HtmlToText {
 
 # ------------------------------------------------------------
 # Discord通知
+#
+# Discordのcontentは2000文字まで。
+# 安全のため1900文字以内に分割して送信する。
 # ------------------------------------------------------------
 
 function Send-DiscordNotification {
@@ -191,30 +197,136 @@ function Send-DiscordNotification {
 
     try {
 
-        $body = @{
-            content = $Message
-        } | ConvertTo-Json
+        Write-Log `
+            "Discordメッセージ全体文字数: $($Message.Length)"
 
 
-        # 日本語文字化け対策
-        $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+        # ----------------------------------------------------
+        # Discord上限対策
+        # ----------------------------------------------------
+
+        $maxLength = 1900
 
 
-        Invoke-RestMethod `
-            -Uri $discordWebhookUrl `
-            -Method Post `
-            -ContentType "application/json; charset=utf-8" `
-            -Body $bodyBytes | Out-Null
+        # ----------------------------------------------------
+        # 改行単位に分割
+        # ----------------------------------------------------
+
+        $lines = $Message -split "`r?`n"
 
 
-        Write-Log "Discord通知送信成功"
+        $messages = @()
+
+        $currentMessage = ""
+
+
+        foreach ($line in $lines) {
+
+            $newLine = $line + "`n"
+
+
+            # ------------------------------------------------
+            # 1900文字を超える場合
+            # ------------------------------------------------
+
+            if (
+                ($currentMessage.Length + $newLine.Length) `
+                    -gt $maxLength
+            ) {
+
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        $currentMessage
+                    )
+                ) {
+
+                    $messages += `
+                        $currentMessage.TrimEnd()
+                }
+
+
+                $currentMessage = $newLine
+            }
+            else {
+
+                $currentMessage += $newLine
+            }
+        }
+
+
+        # ----------------------------------------------------
+        # 最後に残ったメッセージ
+        # ----------------------------------------------------
+
+        if (
+            -not [string]::IsNullOrWhiteSpace(
+                $currentMessage
+            )
+        ) {
+
+            $messages += `
+                $currentMessage.TrimEnd()
+        }
+
+
+        Write-Log `
+            "Discord通知分割数: $($messages.Count)"
+
+
+        # ----------------------------------------------------
+        # 分割したメッセージを順番に送信
+        # ----------------------------------------------------
+
+        $messageNumber = 1
+
+
+        foreach ($messagePart in $messages) {
+
+            Write-Log `
+                "Discord通知送信: $messageNumber/$($messages.Count) 文字数=$($messagePart.Length)"
+
+
+            $body = @{
+                content = $messagePart
+            } | ConvertTo-Json
+
+
+            # ------------------------------------------------
+            # UTF-8
+            # ------------------------------------------------
+
+            $bodyBytes = `
+                [System.Text.Encoding]::UTF8.GetBytes(
+                    $body
+                )
+
+
+            # ------------------------------------------------
+            # Discord Webhook
+            # ------------------------------------------------
+
+            Invoke-RestMethod `
+                -Uri $discordWebhookUrl `
+                -Method Post `
+                -ContentType "application/json; charset=utf-8" `
+                -Body $bodyBytes | Out-Null
+
+
+            Write-Log `
+                "Discord通知送信成功: $messageNumber/$($messages.Count)"
+
+
+            $messageNumber++
+        }
 
     }
     catch {
 
-        Write-Log "ERROR: Discord通知送信失敗"
+        Write-Log `
+            "ERROR: Discord通知送信失敗"
 
-        Write-Log $_.Exception.Message
+        Write-Log `
+            $_.Exception.Message
     }
 }
 
@@ -254,9 +366,11 @@ function Check-CampSite {
     }
     catch {
 
-        Write-Log "ERROR: $SiteName のページ取得失敗"
+        Write-Log `
+            "ERROR: $SiteName のページ取得失敗"
 
-        Write-Log $_.Exception.Message
+        Write-Log `
+            $_.Exception.Message
 
         return @()
     }
@@ -265,7 +379,8 @@ function Check-CampSite {
     $html = $response.Content
 
 
-    Write-Log "ページ取得成功 HTMLサイズ=$($html.Length)"
+    Write-Log `
+        "ページ取得成功 HTMLサイズ=$($html.Length)"
 
 
     # --------------------------------------------------------
@@ -290,7 +405,9 @@ function Check-CampSite {
         # 空室表か確認
         # ----------------------------------------------------
 
-        if ($tableHtml -notmatch "宿泊施設タイプ") {
+        if (
+            $tableHtml -notmatch "宿泊施設タイプ"
+        ) {
 
             continue
         }
@@ -331,27 +448,31 @@ function Check-CampSite {
             )
 
 
-            if ($cells.Count -eq 0) {
+            if (
+                $cells.Count -eq 0
+            ) {
 
                 continue
             }
 
 
             # ------------------------------------------------
-            # この行に含まれる月を探す
-            #
-            # HTMLによって
-            # 「9月」「10月」等が含まれている場合に利用
+            # 行に含まれる月を取得
             # ------------------------------------------------
 
-            $rowText = Convert-HtmlToText $rowHtml
+            $rowText = `
+                Convert-HtmlToText $rowHtml
+
 
             $detectedMonth = $null
 
 
-            if ($rowText -match '(\d{1,2})月') {
+            if (
+                $rowText -match '(\d{1,2})月'
+            ) {
 
-                $detectedMonth = [int]$matches[1]
+                $detectedMonth = `
+                    [int]$matches[1]
             }
 
 
@@ -359,17 +480,24 @@ function Check-CampSite {
             # 各セル確認
             # ------------------------------------------------
 
-            for ($i = 0; $i -lt $cells.Count; $i++) {
+            for (
+                $i = 0;
+                $i -lt $cells.Count;
+                $i++
+            ) {
 
-                $value = Convert-HtmlToText `
-                    $cells[$i].Groups[1].Value
+                $value = `
+                    Convert-HtmlToText `
+                        $cells[$i].Groups[1].Value
 
 
                 # --------------------------------------------
                 # 日だけのセル
                 # --------------------------------------------
 
-                if ($value -match '^\d{1,2}$') {
+                if (
+                    $value -match '^\d{1,2}$'
+                ) {
 
                     $day = [int]$value
 
@@ -386,7 +514,9 @@ function Check-CampSite {
                     )
 
 
-                    if ($candidates.Count -eq 0) {
+                    if (
+                        $candidates.Count -eq 0
+                    ) {
 
                         continue
                     }
@@ -394,35 +524,37 @@ function Check-CampSite {
 
                     # ----------------------------------------
                     # 月が取得できている場合
-                    # 月 + 日で特定
                     # ----------------------------------------
 
-                    if ($null -ne $detectedMonth) {
+                    if (
+                        $null -ne $detectedMonth
+                    ) {
 
-                        $targetDate = $candidates |
-                            Where-Object {
-                                $_.Month -eq $detectedMonth
-                            } |
-                            Select-Object -First 1
+                        $targetDate = `
+                            $candidates |
+                                Where-Object {
+                                    $_.Month `
+                                        -eq $detectedMonth
+                                } |
+                                Select-Object -First 1
 
                     }
                     else {
 
                         # ------------------------------------
                         # 月情報がない場合
-                        #
-                        # 同じ「17日」などが
-                        # 2か月存在する可能性があるため、
-                        # 対象期間内で最初の候補を使用
                         # ------------------------------------
 
-                        $targetDate = $candidates |
-                            Sort-Object |
-                            Select-Object -First 1
+                        $targetDate = `
+                            $candidates |
+                                Sort-Object |
+                                Select-Object -First 1
                     }
 
 
-                    if ($null -eq $targetDate) {
+                    if (
+                        $null -eq $targetDate
+                    ) {
 
                         continue
                     }
@@ -432,13 +564,17 @@ function Check-CampSite {
                     # 列番号をキーに保存
                     # ----------------------------------------
 
-                    if (-not $dateIndexes.ContainsKey($i)) {
+                    if (
+                        -not $dateIndexes.ContainsKey($i)
+                    ) {
 
-                        $dateIndexes[$i] = $targetDate
+                        $dateIndexes[$i] = `
+                            $targetDate
 
 
-                        $formattedDate = Format-TargetDate `
-                            -Date $targetDate
+                        $formattedDate = `
+                            Format-TargetDate `
+                                -Date $targetDate
 
 
                         Write-Log `
@@ -453,9 +589,12 @@ function Check-CampSite {
         # 日付列が見つからない
         # ----------------------------------------------------
 
-        if ($dateIndexes.Count -eq 0) {
+        if (
+            $dateIndexes.Count -eq 0
+        ) {
 
-            Write-Log "対象の日付列を検出できませんでした"
+            Write-Log `
+                "対象の日付列を検出できませんでした"
 
             continue
         }
@@ -476,7 +615,9 @@ function Check-CampSite {
             )
 
 
-            if ($cells.Count -eq 0) {
+            if (
+                $cells.Count -eq 0
+            ) {
 
                 continue
             }
@@ -486,11 +627,16 @@ function Check-CampSite {
             # 施設名
             # ------------------------------------------------
 
-            $facility = Convert-HtmlToText `
-                $cells[0].Groups[1].Value
+            $facility = `
+                Convert-HtmlToText `
+                    $cells[0].Groups[1].Value
 
 
-            if ([string]::IsNullOrWhiteSpace($facility)) {
+            if (
+                [string]::IsNullOrWhiteSpace(
+                    $facility
+                )
+            ) {
 
                 continue
             }
@@ -514,31 +660,41 @@ function Check-CampSite {
             # 対象日
             # ------------------------------------------------
 
-            foreach ($index in $dateIndexes.Keys) {
+            foreach (
+                $index in $dateIndexes.Keys
+            ) {
 
-                if ($index -ge $cells.Count) {
+                if (
+                    $index -ge $cells.Count
+                ) {
 
                     continue
                 }
 
 
-                $targetDate = $dateIndexes[$index]
+                $targetDate = `
+                    $dateIndexes[$index]
 
 
                 # ------------------------------------------------
                 # ステータス取得
                 # ------------------------------------------------
 
-                $cellHtml = $cells[$index].Groups[1].Value
+                $cellHtml = `
+                    $cells[$index].Groups[1].Value
 
-                $status = Convert-HtmlToText $cellHtml
+
+                $status = `
+                    Convert-HtmlToText $cellHtml
 
 
                 # ------------------------------------------------
                 # × = 空きなし
                 # ------------------------------------------------
 
-                if ($status -eq "×") {
+                if (
+                    $status -eq "×"
+                ) {
 
                     continue
                 }
@@ -548,7 +704,9 @@ function Check-CampSite {
                 # 休 = 休み
                 # ------------------------------------------------
 
-                if ($status -eq "休") {
+                if (
+                    $status -eq "休"
+                ) {
 
                     continue
                 }
@@ -558,7 +716,9 @@ function Check-CampSite {
                 # - = 対象外
                 # ------------------------------------------------
 
-                if ($status -eq "-") {
+                if (
+                    $status -eq "-"
+                ) {
 
                     continue
                 }
@@ -568,7 +728,11 @@ function Check-CampSite {
                 # 空白 = 余裕あり
                 # ------------------------------------------------
 
-                if ([string]::IsNullOrWhiteSpace($status)) {
+                if (
+                    [string]::IsNullOrWhiteSpace(
+                        $status
+                    )
+                ) {
 
                     $status = "○"
                 }
@@ -592,21 +756,28 @@ function Check-CampSite {
                 # 結果保存
                 # ------------------------------------------------
 
-                $result = [PSCustomObject]@{
+                $result = `
+                    [PSCustomObject]@{
 
-                    Site     = $SiteName
+                        Site = `
+                            $SiteName
 
-                    Date     = $targetDate
+                        Date = `
+                            $targetDate
 
-                    Facility = $facility
+                        Facility = `
+                            $facility
 
-                    Status   = $status
+                        Status = `
+                            $status
 
-                    Url      = $Url
-                }
+                        Url = `
+                            $Url
+                    }
 
 
-                $results += $result
+                $results += `
+                    $result
             }
         }
     }
@@ -626,8 +797,10 @@ try {
     Write-Log "########################################"
     Write-Log "CAMP and CABINS 空室チェック開始"
 
+
     Write-Log `
         "対象期間: $($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd'))"
+
 
     Write-Log "########################################"
 
@@ -644,7 +817,8 @@ try {
     # HTML Decode
     # --------------------------------------------------------
 
-    Add-Type -AssemblyName System.Web
+    Add-Type `
+        -AssemblyName System.Web
 
 
     # --------------------------------------------------------
@@ -660,14 +834,18 @@ try {
 
     foreach ($site in $sites) {
 
-        $results = Check-CampSite `
-            -SiteName $site.Name `
-            -Url $site.Url
+        $results = `
+            Check-CampSite `
+                -SiteName $site.Name `
+                -Url $site.Url
 
 
-        if ($null -ne $results) {
+        if (
+            $null -ne $results
+        ) {
 
-            $allResults += $results
+            $allResults += `
+                $results
         }
     }
 
@@ -682,7 +860,9 @@ try {
     Write-Log "########################################"
 
 
-    if ($allResults.Count -gt 0) {
+    if (
+        $allResults.Count -gt 0
+    ) {
 
 
         # ----------------------------------------------------
@@ -690,8 +870,12 @@ try {
         # 日付 → 場所 → 施設
         # ----------------------------------------------------
 
-        $allResults = $allResults |
-            Sort-Object Date, Site, Facility
+        $allResults = `
+            $allResults |
+                Sort-Object `
+                    Date,
+                    Site,
+                    Facility
 
 
         # ----------------------------------------------------
@@ -703,10 +887,13 @@ try {
         Write-Log ""
 
 
-        foreach ($result in $allResults) {
+        foreach (
+            $result in $allResults
+        ) {
 
-            $formattedDate = Format-TargetDate `
-                -Date $result.Date
+            $formattedDate = `
+                Format-TargetDate `
+                    -Date $result.Date
 
 
             $message = `
@@ -716,7 +903,8 @@ try {
                 "[$($result.Status)]"
 
 
-            Write-Log $message
+            Write-Log `
+                $message
         }
 
 
@@ -745,7 +933,9 @@ try {
             )
 
 
-            if ($siteResults.Count -gt 0) {
+            if (
+                $siteResults.Count -gt 0
+            ) {
 
                 $discordMessage += @"
 
@@ -754,10 +944,13 @@ try {
 "@
 
 
-                foreach ($result in $siteResults) {
+                foreach (
+                    $result in $siteResults
+                ) {
 
-                    $formattedDate = Format-TargetDate `
-                        -Date $result.Date
+                    $formattedDate = `
+                        Format-TargetDate `
+                            -Date $result.Date
 
 
                     $discordMessage += `
@@ -777,6 +970,10 @@ $($site.Url)
         }
 
 
+        # ----------------------------------------------------
+        # チェック日時
+        # ----------------------------------------------------
+
         $discordMessage += @"
 
 チェック日時:
@@ -787,6 +984,9 @@ $(Get-Date -Format "yyyy/MM/dd HH:mm:ss")
 
         # ====================================================
         # Discord送信
+        #
+        # 1900文字を超えた場合は
+        # Send-DiscordNotification 内で自動分割
         # ====================================================
 
         Send-DiscordNotification `
@@ -798,8 +998,10 @@ $(Get-Date -Format "yyyy/MM/dd HH:mm:ss")
 
         Write-Log ""
 
+
         Write-Log `
             "$($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd')) 空き候補なし"
+
 
         # 空きなしの場合はDiscord通知しない
     }
@@ -814,9 +1016,12 @@ $(Get-Date -Format "yyyy/MM/dd HH:mm:ss")
 catch {
 
     Write-Log ""
-    Write-Log "ERROR: 処理中にエラーが発生しました"
 
-    Write-Log $_.Exception.Message
+    Write-Log `
+        "ERROR: 処理中にエラーが発生しました"
+
+    Write-Log `
+        $_.Exception.Message
 
     exit 1
 }

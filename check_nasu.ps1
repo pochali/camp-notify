@@ -9,7 +9,7 @@
 #   実行日の翌日 ～ 来月末
 #
 # 対象曜日:
-#   土曜日・日曜日のみ
+#   土曜日
 #
 # 除外:
 #   施設名に「オートキャンプ」を含むもの
@@ -69,7 +69,7 @@ $endDate = (
 
 # ------------------------------------------------------------
 # 対象日
-# 土曜日・日曜日のみ
+# 土曜日のみ
 # ------------------------------------------------------------
 
 $targetDates = @()
@@ -79,8 +79,7 @@ $currentDate = $startDate
 while ($currentDate -le $endDate) {
 
     if (
-        $currentDate.DayOfWeek -eq [DayOfWeek]::Saturday -or
-        $currentDate.DayOfWeek -eq [DayOfWeek]::Sunday
+        $currentDate.DayOfWeek -eq [DayOfWeek]::Saturday
     ) {
 
         $targetDates += $currentDate

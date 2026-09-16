@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check CAMP and CABINS
-        shell: powershell
+        shell: pwsh
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |

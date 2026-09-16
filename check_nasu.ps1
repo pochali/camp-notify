@@ -8,8 +8,9 @@
 # 対象期間:
 #   実行日の翌日 ～ 来月末
 #
-# 対象曜日:
-#   土曜日のみ
+# 対象日:
+#   ・土曜日
+#   ・exceptionDates に指定した日
 #
 # 除外:
 #   施設名に「オートキャンプ」を含むもの
@@ -68,8 +69,26 @@ $endDate = (
 
 
 # ------------------------------------------------------------
+# 例外日
+#
+# 土曜日ではなくてもチェック対象にする日
+#
+# 追加する場合:
+#
+# $exceptionDates = @(
+#     [datetime]"2026-09-21",
+#     [datetime]"2026-10-12"
+# )
+# ------------------------------------------------------------
+
+$exceptionDates = @(
+    [datetime]"2026-09-21"
+)
+
+
+# ------------------------------------------------------------
 # 対象日
-# 土曜日のみ
+# 土曜日 + 例外日
 # ------------------------------------------------------------
 
 $targetDates = @()
@@ -78,8 +97,19 @@ $currentDate = $startDate
 
 while ($currentDate -le $endDate) {
 
-    if (
+    # 土曜日
+    $isSaturday = (
         $currentDate.DayOfWeek -eq [DayOfWeek]::Saturday
+    )
+
+    # 例外日
+    $isExceptionDate = (
+        $exceptionDates.Date -contains $currentDate.Date
+    )
+
+    if (
+        $isSaturday -or
+        $isExceptionDate
     ) {
 
         $targetDates += $currentDate
@@ -157,6 +187,7 @@ function Get-JapaneseDayOfWeek {
 # 日付表示
 #
 # 例:
+# 9/21(月)
 # 10/24(土)
 # ------------------------------------------------------------
 
@@ -195,7 +226,8 @@ function Convert-HtmlToText {
 
 # ------------------------------------------------------------
 # 対象日か判定
-# 土曜日のみ
+#
+# 土曜日 + 例外日
 # ------------------------------------------------------------
 
 function Test-TargetDate {
@@ -204,6 +236,7 @@ function Test-TargetDate {
         [datetime]$Date
     )
 
+    # 対象期間外
     if (
         $Date -lt $startDate -or
         $Date -gt $endDate
@@ -213,15 +246,22 @@ function Test-TargetDate {
     }
 
 
-    if (
-        $Date.DayOfWeek -ne [DayOfWeek]::Saturday
-    ) {
-
-        return $false
-    }
+    # 土曜日
+    $isSaturday = (
+        $Date.DayOfWeek -eq [DayOfWeek]::Saturday
+    )
 
 
-    return $true
+    # 例外日
+    $isExceptionDate = (
+        $exceptionDates.Date -contains $Date.Date
+    )
+
+
+    return (
+        $isSaturday -or
+        $isExceptionDate
+    )
 }
 
 
@@ -613,6 +653,12 @@ function Check-CampSite {
 
                     # =========================================
                     # 月跨ぎ判定
+                    #
+                    # 例:
+                    # 29
+                    # 30
+                    # 1 ← 翌月
+                    # 2
                     # =========================================
 
                     if (
@@ -662,7 +708,7 @@ function Check-CampSite {
 
 
                     # =========================================
-                    # 土曜日のみ
+                    # 土曜日 + 例外日のみ
                     # =========================================
 
                     if (
@@ -907,7 +953,25 @@ try {
 
 
     Write-Log `
-        "対象曜日: 土曜日"
+        "対象条件: 土曜日 + 例外日"
+
+
+    # --------------------------------------------------------
+    # 例外日ログ
+    # --------------------------------------------------------
+
+    if ($exceptionDates.Count -gt 0) {
+
+        $exceptionDateStrings = @(
+            $exceptionDates |
+                ForEach-Object {
+                    Format-TargetDate -Date $_
+                }
+        )
+
+        Write-Log `
+            "例外日: $($exceptionDateStrings -join ', ')"
+    }
 
 
     Write-Log `
@@ -1162,7 +1226,7 @@ $(Get-Date -Format "yyyy/MM/dd HH:mm:ss")
 
 
         Write-Log `
-            "$($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd')) の土曜日に空き候補なし"
+            "$($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd')) の対象日に空き候補なし"
     }
 
 

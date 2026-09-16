@@ -9,7 +9,7 @@
 #   実行日の翌日 ～ 来月末
 #
 # 対象曜日:
-#   土曜日
+#   土曜日のみ
 #
 # 除外:
 #   施設名に「オートキャンプ」を含むもの
@@ -157,7 +157,7 @@ function Get-JapaneseDayOfWeek {
 # 日付表示
 #
 # 例:
-# 10/25(日)
+# 10/24(土)
 # ------------------------------------------------------------
 
 function Format-TargetDate {
@@ -195,6 +195,7 @@ function Convert-HtmlToText {
 
 # ------------------------------------------------------------
 # 対象日か判定
+# 土曜日のみ
 # ------------------------------------------------------------
 
 function Test-TargetDate {
@@ -213,8 +214,7 @@ function Test-TargetDate {
 
 
     if (
-        $Date.DayOfWeek -ne [DayOfWeek]::Saturday -and
-        $Date.DayOfWeek -ne [DayOfWeek]::Sunday
+        $Date.DayOfWeek -ne [DayOfWeek]::Saturday
     ) {
 
         return $false
@@ -613,12 +613,6 @@ function Check-CampSite {
 
                     # =========================================
                     # 月跨ぎ判定
-                    #
-                    # 例:
-                    # 29
-                    # 30
-                    # 1 ← 翌月
-                    # 2
                     # =========================================
 
                     if (
@@ -668,7 +662,7 @@ function Check-CampSite {
 
 
                     # =========================================
-                    # 土日のみ
+                    # 土曜日のみ
                     # =========================================
 
                     if (
@@ -913,7 +907,7 @@ try {
 
 
     Write-Log `
-        "対象曜日: 土曜日・日曜日"
+        "対象曜日: 土曜日"
 
 
     Write-Log `
@@ -1168,7 +1162,7 @@ $(Get-Date -Format "yyyy/MM/dd HH:mm:ss")
 
 
         Write-Log `
-            "$($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd')) の土日に空き候補なし"
+            "$($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd')) の土曜日に空き候補なし"
     }
 
 

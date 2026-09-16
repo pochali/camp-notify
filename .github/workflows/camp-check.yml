@@ -1,10 +1,11 @@
 name: Camp Availability Check
 
 on:
-  schedule:
-    # 毎時 3, 8, 13, 18, 23...分
-    - cron: "3/5 * * * *"
+  # 外部から repository_dispatch で起動
+  repository_dispatch:
+    types: [camp_availability_check]
 
+  # GitHub画面から手動実行も可能
   workflow_dispatch:
 
 jobs:

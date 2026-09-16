@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # CAMP and CABINS 空室チェック
 #
 # 対象:
@@ -6,10 +6,7 @@
 #   ・山中湖
 #
 # 対象日:
-#   2026/9/19
-#   2026/9/20
-#   2026/9/21
-#   2026/9/22
+#   実行日の翌日 ～ 来月末
 #
 # 判定:
 #   空白 = 余裕あり → ○
@@ -24,7 +21,6 @@
 
 # ------------------------------------------------------------
 # Discord設定
-# ★ここだけ自分のWebhook URLに変更
 # ------------------------------------------------------------
 
 $discordWebhookUrl = $env:DISCORD_WEBHOOK_URL
@@ -47,10 +43,35 @@ $sites = @(
 
 
 # ------------------------------------------------------------
-# 対象日
+# 対象期間
+# 実行日の翌日 ～ 来月末
 # ------------------------------------------------------------
 
-$targetDays = @(19, 20, 21, 22)
+$today = (Get-Date).Date
+
+$startDate = $today.AddDays(1)
+
+# 翌々月1日の前日 = 来月末
+$endDate = (Get-Date `
+    -Year $today.AddMonths(2).Year `
+    -Month $today.AddMonths(2).Month `
+    -Day 1).AddDays(-1)
+
+
+# ------------------------------------------------------------
+# 対象日一覧作成
+# ------------------------------------------------------------
+
+$targetDates = @()
+
+$currentDate = $startDate
+
+while ($currentDate -le $endDate) {
+
+    $targetDates += $currentDate
+
+    $currentDate = $currentDate.AddDays(1)
+}
 
 
 # ------------------------------------------------------------
@@ -94,6 +115,49 @@ function Write-Log {
         -Path $logFile `
         -Value $line `
         -Encoding UTF8
+}
+
+
+# ------------------------------------------------------------
+# 日本語曜日取得
+# ------------------------------------------------------------
+
+function Get-JapaneseDayOfWeek {
+
+    param(
+        [datetime]$Date
+    )
+
+    $weekdays = @(
+        "日",
+        "月",
+        "火",
+        "水",
+        "木",
+        "金",
+        "土"
+    )
+
+    return $weekdays[[int]$Date.DayOfWeek]
+}
+
+
+# ------------------------------------------------------------
+# 日付表示
+#
+# 例:
+#   9/17(木)
+# ------------------------------------------------------------
+
+function Format-TargetDate {
+
+    param(
+        [datetime]$Date
+    )
+
+    $week = Get-JapaneseDayOfWeek -Date $Date
+
+    return "$($Date.Month)/$($Date.Day)($week)"
 }
 
 
@@ -244,10 +308,17 @@ function Check-CampSite {
 
         # ----------------------------------------------------
         # 日付列
+        #
+        # Key   = 列番号
+        # Value = DateTime
         # ----------------------------------------------------
 
-        $dayIndexes = @{}
+        $dateIndexes = @{}
 
+
+        # ----------------------------------------------------
+        # HTMLの日付ヘッダーから対象日を検出
+        # ----------------------------------------------------
 
         foreach ($rowMatch in $rows) {
 
@@ -266,34 +337,114 @@ function Check-CampSite {
             }
 
 
+            # ------------------------------------------------
+            # この行に含まれる月を探す
+            #
+            # HTMLによって
+            # 「9月」「10月」等が含まれている場合に利用
+            # ------------------------------------------------
+
+            $rowText = Convert-HtmlToText $rowHtml
+
+            $detectedMonth = $null
+
+
+            if ($rowText -match '(\d{1,2})月') {
+
+                $detectedMonth = [int]$matches[1]
+            }
+
+
+            # ------------------------------------------------
+            # 各セル確認
+            # ------------------------------------------------
+
             for ($i = 0; $i -lt $cells.Count; $i++) {
 
                 $value = Convert-HtmlToText `
                     $cells[$i].Groups[1].Value
 
 
+                # --------------------------------------------
+                # 日だけのセル
+                # --------------------------------------------
+
                 if ($value -match '^\d{1,2}$') {
 
                     $day = [int]$value
 
 
-                    if ($targetDays -contains $day) {
+                    # ----------------------------------------
+                    # 対象候補取得
+                    # ----------------------------------------
 
-                        if (-not $dayIndexes.ContainsKey($day)) {
+                    $candidates = @(
+                        $targetDates |
+                            Where-Object {
+                                $_.Day -eq $day
+                            }
+                    )
 
-                            $dayIndexes[$day] = $i
 
-                            Write-Log `
-                                "日付列検出: 9/$day → 列 $i"
-                        }
+                    if ($candidates.Count -eq 0) {
+
+                        continue
+                    }
+
+
+                    # ----------------------------------------
+                    # 月が取得できている場合
+                    # 月 + 日で特定
+                    # ----------------------------------------
+
+                    if ($null -ne $detectedMonth) {
+
+                        $targetDate = $candidates |
+                            Where-Object {
+                                $_.Month -eq $detectedMonth
+                            } |
+                            Select-Object -First 1
+
+                    }
+                    else {
+
+                        # ------------------------------------
+                        # 月情報がない場合
+                        #
+                        # 同じ「17日」などが
+                        # 2か月存在する可能性があるため、
+                        # 対象期間内で最初の候補を使用
+                        # ------------------------------------
+
+                        $targetDate = $candidates |
+                            Sort-Object |
+                            Select-Object -First 1
+                    }
+
+
+                    if ($null -eq $targetDate) {
+
+                        continue
+                    }
+
+
+                    # ----------------------------------------
+                    # 列番号をキーに保存
+                    # ----------------------------------------
+
+                    if (-not $dateIndexes.ContainsKey($i)) {
+
+                        $dateIndexes[$i] = $targetDate
+
+
+                        $formattedDate = Format-TargetDate `
+                            -Date $targetDate
+
+
+                        Write-Log `
+                            "日付列検出: $formattedDate → 列 $i"
                     }
                 }
-            }
-
-
-            if ($dayIndexes.Count -eq $targetDays.Count) {
-
-                break
             }
         }
 
@@ -302,7 +453,7 @@ function Check-CampSite {
         # 日付列が見つからない
         # ----------------------------------------------------
 
-        if ($dayIndexes.Count -eq 0) {
+        if ($dateIndexes.Count -eq 0) {
 
             Write-Log "対象の日付列を検出できませんでした"
 
@@ -363,21 +514,15 @@ function Check-CampSite {
             # 対象日
             # ------------------------------------------------
 
-            foreach ($day in $targetDays) {
-
-                if (-not $dayIndexes.ContainsKey($day)) {
-
-                    continue
-                }
-
-
-                $index = $dayIndexes[$day]
-
+            foreach ($index in $dateIndexes.Keys) {
 
                 if ($index -ge $cells.Count) {
 
                     continue
                 }
+
+
+                $targetDate = $dateIndexes[$index]
 
 
                 # ------------------------------------------------
@@ -451,7 +596,7 @@ function Check-CampSite {
 
                     Site     = $SiteName
 
-                    Day      = $day
+                    Date     = $targetDate
 
                     Facility = $facility
 
@@ -480,7 +625,10 @@ try {
     Write-Log ""
     Write-Log "########################################"
     Write-Log "CAMP and CABINS 空室チェック開始"
-    Write-Log "対象日: 9/19, 9/20, 9/21, 9/22"
+
+    Write-Log `
+        "対象期間: $($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd'))"
+
     Write-Log "########################################"
 
 
@@ -539,10 +687,11 @@ try {
 
         # ----------------------------------------------------
         # ソート
+        # 日付 → 場所 → 施設
         # ----------------------------------------------------
 
         $allResults = $allResults |
-            Sort-Object Day, Site, Facility
+            Sort-Object Date, Site, Facility
 
 
         # ----------------------------------------------------
@@ -556,9 +705,13 @@ try {
 
         foreach ($result in $allResults) {
 
+            $formattedDate = Format-TargetDate `
+                -Date $result.Date
+
+
             $message = `
                 "★【$($result.Site)】 " +
-                "9/$($result.Day) " +
+                "$formattedDate " +
                 "$($result.Facility) " +
                 "[$($result.Status)]"
 
@@ -584,10 +737,12 @@ try {
 
         foreach ($site in $sites) {
 
-            $siteResults = $allResults |
-                Where-Object {
-                    $_.Site -eq $site.Name
-                }
+            $siteResults = @(
+                $allResults |
+                    Where-Object {
+                        $_.Site -eq $site.Name
+                    }
+            )
 
 
             if ($siteResults.Count -gt 0) {
@@ -601,8 +756,12 @@ try {
 
                 foreach ($result in $siteResults) {
 
+                    $formattedDate = Format-TargetDate `
+                        -Date $result.Date
+
+
                     $discordMessage += `
-                        "9/$($result.Day) " +
+                        "$formattedDate " +
                         "$($result.Facility) " +
                         "[$($result.Status)]`n"
                 }
@@ -638,7 +797,9 @@ $(Get-Date -Format "yyyy/MM/dd HH:mm:ss")
     else {
 
         Write-Log ""
-        Write-Log "9/19～9/22 空き候補なし"
+
+        Write-Log `
+            "$($startDate.ToString('yyyy/MM/dd')) ～ $($endDate.ToString('yyyy/MM/dd')) 空き候補なし"
 
         # 空きなしの場合はDiscord通知しない
     }
